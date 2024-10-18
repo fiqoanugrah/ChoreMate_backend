@@ -3,6 +3,7 @@ const router = express.Router();
 const Event = require('../models/Event');
 const auth = require('../middleware/auth');
 const generateFairSchedule = require('../utils/scheduleGenerator');
+const ics = require('ics');
 
 router.post('/', auth, async (req, res) => {
   try {
@@ -57,6 +58,34 @@ router.get('/', auth, async (req, res) => {
     res.json(events);
   } catch (error) {
     console.error('Error in get all events route:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+router.get('/generate-ics', auth, async (req, res) => {
+  try {
+    const events = await Event.find({ user: req.user.id });
+    const icsEvents = events.flatMap(event => 
+      event.schedules.map(schedule => ({
+        start: schedule.date.toISOString().split('T')[0].split('-').map(Number),
+        duration: { days: 1 },
+        title: event.name,
+        description: schedule.jobs.map(job => `${job.assignee}: ${job.name}`).join(', '),
+        location: '',
+      }))
+    );
+
+    ics.createEvents(icsEvents, (error, value) => {
+      if (error) {
+        console.error('Error generating ICS:', error);
+        return res.status(500).json({ message: 'Failed to generate ICS file' });
+      }
+      res.set('Content-Type', 'text/calendar');
+      res.set('Content-Disposition', 'attachment; filename=events.ics');
+      res.send(value);
+    });
+  } catch (error) {
+    console.error('Error in generate ICS route:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
